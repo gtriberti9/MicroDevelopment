@@ -110,6 +110,13 @@ ggplot(access_df, aes(x = reorder(service, n), y = n)) +
   theme_minimal(base_size = 12)
 
 
-## 
+## Joint plot to check economic strata
+table(individual_data$ESTRATO)
 
+joint_data <- individual_data %>%
+  pivot_longer(
+    names_to = "ESTRATO",
+    values_to = "P3_10_OPC1"
+  ) %>% 
+  group_by(ESTRATO, P3_10_OPC1) 
 

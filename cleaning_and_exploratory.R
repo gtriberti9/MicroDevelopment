@@ -10,6 +10,9 @@ library(broom)
 library(sjPlot)
 library(sandwich)
 library(lmtest)
+library(lme4)
+library(purrr)
+library(stringr)
 
 
 ## -------------- IMPORTING THE DATA ------------------##
@@ -66,19 +69,19 @@ ggplot(household_counts, aes(x = reorder(state_name, -num_households), y = num_h
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-# ## ------------ UPDATING THE DATABASES WITHOUT TOP 5 STATES ------------
-# 
-# household_data <- household_data %>%
-#   filter(ENT != 2 & ENT != 9 & ENT != 14 & ENT != 19 & ENT != 22)
-# 
-# individual_data <- individual_data %>%
-#   filter(ENT != 2 & ENT != 9 & ENT != 14 & ENT != 19 & ENT != 22)
-# 
-# adult_diseases_data <- adult_diseases_data %>%
-#   filter(ENT != 2 & ENT != 9 & ENT != 14 & ENT != 19 & ENT != 22)
-# 
-# health_quality_data <- health_quality_data %>%
-#   filter(ENT != 2 & ENT != 9 & ENT != 14 & ENT != 19 & ENT != 22)
+## ------------ UPDATING THE DATABASES WITHOUT TOP 5 STATES ------------
+
+household_data <- household_data %>%
+  filter(ENT != 2 & ENT != 9 & ENT != 14 & ENT != 19 & ENT != 22)
+
+individual_data <- individual_data %>%
+  filter(ENT != 2 & ENT != 9 & ENT != 14 & ENT != 19 & ENT != 22)
+
+adult_diseases_data <- adult_diseases_data %>%
+  filter(ENT != 2 & ENT != 9 & ENT != 14 & ENT != 19 & ENT != 22)
+
+health_quality_data <- health_quality_data %>%
+  filter(ENT != 2 & ENT != 9 & ENT != 14 & ENT != 19 & ENT != 22)
 
 
 
@@ -91,9 +94,9 @@ labels <- c(
   "P3_9_02" = "ISSSTE",
   "P3_9_03" = "State-level ISSSTE",
   "P3_9_04" = "Pemex",
-  "P3_9_05" = "Defense",
+  "P3_9_05" = "Defensa",
   "P3_9_06" = "Navy",
-  "P3_9_07" = "Seguro Popular / Siglo XXI",
+  "P3_9_07" = "Seguro Popular",
   "P3_9_08" = "IMSS PROSPERA",
   "P3_9_09" = "Private insurance",
   "P3_9_10" = "Other institution",
@@ -134,9 +137,9 @@ labels <- c(
   "2" = "ISSSTE",
   "3" = "State-level ISSSTE",
   "4" = "Pemex",
-  "5" = "Defense",
+  "5" = "Defensa",
   "6" = "Navy",
-  "7" = "Seguro Popular / Siglo XXI",
+  "7" = "Seguro Popular",
   "8" = "IMSS PROSPERA",
   "9" = "Private insurance",
   "10" = "Other institution",
@@ -161,8 +164,6 @@ ggplot(access_df, aes(x = reorder(service, n), y = n)) +
     y = "Number of People"
   ) +
   theme_minimal(base_size = 12)
-
-
 
 
 ## --------- PROPORTION OF PEOPLE BY STRATA -----------
@@ -247,9 +248,9 @@ labels <- c(
   "2" = "ISSSTE",
   "3" = "State-level ISSSTE",
   "4" = "Pemex",
-  "5" = "Defense",
+  "5" = "Defensa",
   "6" = "Navy",
-  "7" = "Seguro Popular / Siglo XXI",
+  "7" = "Seguro Popular",
   "8" = "IMSS PROSPERA",
   "9" = "Private insurance",
   "10" = "Other institution",
@@ -445,16 +446,138 @@ ggplot(reason_summary, aes(x = reorder(reason, prop), y = prop, fill = type)) +
   theme_minimal(base_size = 12)
 
 
+## ---------- BEFORE STARTING: HEALTH CONDITIONS ------------
+
+# Create condition mapping
+condition_labels <- c(
+  "1" = "Respiratory infections",
+  "2" = "Pneumonia",
+  "3" = "COPD",
+  "4" = "Cough/Sore throat",
+  "5" = "Tuberculosis",
+  "6" = "Ear infection",
+  "7" = "Conjunctivitis",
+  "8" = "Asthma",
+  "9" = "Allergies",
+  "10" = "Heart disease",
+  "11" = "Rheumatic fever",
+  "12" = "Diabetes",
+  "13" = "Hypertension",
+  "14" = "Stroke",
+  "15" = "Obesity",
+  "16" = "Arthritis",
+  "17" = "Diarrhea",
+  "18" = "Gastritis/Ulcer",
+  "19" = "Colitis",
+  "20" = "Parasites",
+  "21" = "Hepatitis",
+  "22" = "Kidney disease",
+  "23" = "UTI",
+  "24" = "Exanthematous disease",
+  "25" = "STI",
+  "26" = "HIV/AIDS",
+  "28" = "Dengue",
+  "29" = "Poisoning",
+  "30" = "Alcoholism",
+  "32" = "Drug-related illness",
+  "33" = "Accidental injury",
+  "34" = "Injury from aggression",
+  "36" = "Stress",
+  "37" = "Depression",
+  "38" = "Skin issues",
+  "39" = "Oral disease",
+  "40" = "Headache",
+  "41" = "Fever (unspecified)",
+  "42" = "Folk illnesses",
+  "43" = "Pregnancy",
+  "44" = "Cancer",
+  "45" = "Other",
+  "99" = "Don't know"
+)
+
+# Prepare the data - convert condition codes to factors with labels
+health_quality_data <- health_quality_data %>%
+  mutate(
+    primary_condition_code = as.character(P1_2),
+    primary_condition = factor(primary_condition_code, 
+                               levels = names(condition_labels),
+                               labels = condition_labels)
+  )
+
+# Step 1: Chi-square test to see if conditions differ by provider
+chi_result <- chisq.test(table(health_quality_data$primary_condition, health_quality_data$provider))
+print(paste("Chi-square test result: X² =", round(chi_result$statistic, 2), 
+            ", df =", chi_result$parameter, 
+            ", p-value =", format.pval(chi_result$p.value, digits = 3)))
+
+# Step 2: Calculate condition frequencies by provider
+condition_by_provider <- health_quality_data %>%
+  group_by(provider, primary_condition) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  group_by(provider) %>%
+  mutate(
+    total = sum(count),
+    percentage = count / total * 100
+  ) %>%
+  arrange(provider, desc(percentage))
+
+# Step 3: Get the top 5 conditions for each provider
+top_conditions_by_provider <- condition_by_provider %>%
+  group_by(provider) %>%
+  slice_max(order_by = percentage, n = 5) %>%
+  ungroup()
+
+# Step 4: Find conditions with the biggest variation across providers
+condition_variation <- condition_by_provider %>%
+  group_by(primary_condition) %>%
+  summarize(
+    max_pct = max(percentage, na.rm = TRUE),
+    min_pct = min(percentage, na.rm = TRUE),
+    variation = max_pct - min_pct,
+    avg_pct = mean(percentage, na.rm = TRUE)
+  ) %>%
+  filter(!is.na(primary_condition)) %>%
+  arrange(desc(variation))
+
+top_varying_conditions <- condition_variation %>%
+  slice_max(order_by = variation, n = 10) %>%
+  pull(primary_condition)
+
+# Step 5: Visualize the results
+
+# Plot 1: Top 5 conditions by provider
+plot1 <- ggplot(top_conditions_by_provider, 
+                aes(x = reorder(primary_condition, percentage), y = percentage, fill = provider)) +
+  geom_col() +
+  facet_wrap(~ provider, scales = "free_y") +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Top 5 Primary Conditions by Provider Type",
+    subtitle = "Percentage of patients seeking care for each condition",
+    x = "Condition",
+    y = "Percentage of Patients (%)"
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 8)
+  )
+
+print(plot1)
+
 
 ## ------------------ HYPOTHESIS 1: --------------------
-## Providers with higher overtreatment rates also exhibit signs of 
-## resource strain. 
+## Without capitation or fee-for-service incentives and with low 
+## monitoring, providers may induce less services. 
+ 
 
 # Label providers
 health_quality_data <- health_quality_data %>%
   mutate(
-    provider = factor(P3_7, levels = c(1,2,3,4,5,6,7,8,9),  
-                      labels = c("IMSS", "ISSSTE", "Seguro Popular", "Pemex", "Marina", "Defensa", "Private", "NGO", "Other")),
+    provider = factor(P3_7, levels = c(1,2,3,4,5,6,7,8,9, 10, 11),  
+                      labels = c("IMSS", "ISSSTE", "State-level ISSSTE",
+                                 "Pemex", "Defensa", "Navy", "Seguro Popular", 
+                                 "IMSS PROSPERA", "Other", "Private", "Other")),
     test_requested = ifelse(P6_1 == 1, 1, 0),
     sex = factor(SEXO, labels = c("Male", "Female")),
     medications = as.numeric(as.character(P5_1)),
@@ -462,11 +585,13 @@ health_quality_data <- health_quality_data %>%
     age = as.numeric(EDAD)  
   )
 
-# Model 1: Diagnostic tests requested
-model_tests <- glm(test_requested ~ provider + age + sex + condition,
-                   data = health_quality_data, family = binomial)
+health_quality_data$provider <- relevel(health_quality_data$provider, ref = "Private")
 
-# Model 2: Number of medications prescribed
+# Diagnostic tests requested
+model_tests <- lm(test_requested ~ provider + age + sex + condition,
+                   data = health_quality_data)
+
+# Number of medications prescribed
 model_meds <- lm(medications ~ provider + age + sex + condition,
                  data = health_quality_data)
 
@@ -474,42 +599,398 @@ model_meds <- lm(medications ~ provider + age + sex + condition,
 coeftest(model_tests, vcov = vcovHC(model_tests, type = "HC1"))
 coeftest(model_meds, vcov = vcovHC(model_meds, type = "HC1"))
 
-# Step 1: Calculate averages per provider
-plot_data <- health_quality_data %>%
-  group_by(provider) %>%
-  summarise(
-    test_rate = mean(test_requested, na.rm = TRUE),
-    avg_meds = mean(medications, na.rm = TRUE)
+##############################
+#######  PLOTS FOR MODEL_TESTS
+##############################
+# -- FOR HEALTH CONDITIONS --
+condition_map <- data.frame(
+  term = paste0("condition", c(
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+    22, 23, 24, 25, 26, 28, 29, 30, 32, 33,
+    34, 36, 37, 38, 39, 40, 41, 42, 43, 44,
+    45, 99)
+  ),
+  condition = c(
+    "Pneumonia", "COPD", "Cold/Sore throat", "Tuberculosis", "Ear infection", "Conjunctivitis", "Asthma", "Allergies", "Heart disease",
+    "Rheumatic fever", "Diabetes", "Hypertension", "Stroke", "Obesity", "Arthritis", "Diarrhea", "Gastritis/Ulcer", "Colitis", "Parasites",
+    "Hepatitis", "Kidney disease", "UTI", "Exanthematous disease", "STI", "HIV/AIDS", "Dengue", "Poisoning", "Alcoholism", "Drug-related illness",
+    "Accidental injury", "Injury from aggression", "Stress", "Depression", "Skin issues", "Oral disease", "Headache", "Fever (unspecified)",
+    "Folk illnesses", "Pregnancy", "Cancer", "Other", "Don't know"
+  )
+)
+
+tidy_model <- tidy(model_tests, conf.int = TRUE)
+
+# Filter only condition variables
+tidy_conditions <- tidy_model %>%
+  filter(grepl("^condition\\d+", term)) %>%
+  left_join(condition_map, by = "term") %>%
+  arrange(estimate)
+
+# Create factor with ordering for plotting
+tidy_conditions$condition <- factor(tidy_conditions$condition, levels = tidy_conditions$condition)
+
+
+ggplot(tidy_conditions, aes(x = estimate, y = condition)) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, color = "gray50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Effect of Health Condition on Diagnostic Test",
+    x = "Coefficient Estimate (with 95% CI)",
+    y = "Condition"
+  ) +
+  theme_minimal(base_size = 13)
+
+
+# -- NOW FOR PROVIDERS--
+provider_map <- data.frame(
+  term = c(
+    "providerIMSS", "providerISSSTE", "providerState-level ISSSTE", 
+    "providerPemex", "providerDefensa",
+    "providerNavy", "providerSeguro Popular", "providerIMSS PROSPERA",
+    "providerOther"
+  ),
+  provider = c(
+    "Social Security (IMSS)", "ISSSTE", "State-level ISSSTE", "Pemex", "Defensa",
+    "Navy", "Seguro Popular", "IMSS PROSPERA", "Other institution"
+  )
+)
+
+# Tidy your model
+tidy_model <- tidy(model_tests, conf.int = TRUE)
+
+# Filter for provider terms only
+tidy_providers <- tidy_model %>%
+  filter(term %in% provider_map$term) %>%
+  left_join(provider_map, by = "term") %>%
+  arrange(estimate)
+
+# Join the results on quality by provider
+provider_summary <- provider_summary %>%
+  rename(provider = P3_7_label)
+
+tidy_providers <- tidy_providers %>%
+  left_join(provider_summary, by = "provider")
+
+# 1. Add significance stars
+tidy_providers <- tidy_providers %>%
+  mutate(
+    stars = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      p.value < 0.1 ~ ".",
+      TRUE ~ ""
+    ),
+    coef_label = paste0(sprintf("%.2f", estimate), stars)
   )
 
-# Step 2: Reorder providers by one metric (e.g., test_rate)
-plot_data <- plot_data %>%
-  mutate(provider = fct_reorder(provider, avg_meds, .desc = TRUE))
+# 2. Order by average quality (ensure provider is factor)
+tidy_providers <- tidy_providers %>%
+  mutate(provider = fct_reorder(provider, avg_quality))
 
-# Step 3: Pivot for plotting
-plot_long <- plot_data %>%
-  pivot_longer(cols = c(test_rate, avg_meds), names_to = "metric", values_to = "value")
+# 3. Plot
+ggplot(tidy_providers, aes(x = provider, y = estimate)) +
+  geom_col(fill = "steelblue", width = 0.7) +
+  geom_errorbar(aes(ymin = estimate - std.error,
+                    ymax = estimate + std.error), width = 0.2) +
+  geom_text(aes(label = coef_label), hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  labs(
+    title = "Effect of Healthcare Provider on Diagnostic Test Likelihood",
+    x = "Provider",
+    y = "Coefficient (with significance)"
+  ) +
+  theme_minimal()
 
-# Step 4: Plot
-ggplot(plot_long, aes(x = provider, y = value, fill = metric)) +
-  geom_col(position = "dodge") +
-  labs(x = "Provider", y = "Average", fill = "Metric", title = "Procedures by Provider (Ordered by Test Rate)") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+plot_model(model_tests, show.values = TRUE, value.offset = 0.3) +
+  coord_flip()
 
 
-## ----------------- HYPOTHESIS 2: (PENDING) --------------------
-## Higher-rated providers prescribe more treatment/tests but 
-## with no better outcomes.
+ggplot(tidy_providers, aes(x = estimate, y = provider)) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, color = "gray50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Effect of Provider Type on Number of Diagnostic Tests",
+    subtitle = "Ordered by Mean Quality of Care",
+    x = "Coefficient Estimate (with 95% CI)",
+    y = "Provider (Highest to Lowest Mean Quality)"
+  ) +
+  theme_minimal(base_size = 13)
+
+#############################
+#######  PLOTS FOR MODEL_MEDS
+#############################
+
+# -- FOR HEALTH CONDITIONS --
+condition_map <- data.frame(
+  term = paste0("condition", c(
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+    22, 23, 24, 25, 26, 28, 29, 30, 32, 33,
+    34, 36, 37, 38, 39, 40, 41, 42, 43, 44,
+    45, 99)
+  ),
+  condition = c(
+    "Pneumonia", "COPD", "Cold/Sore throat", "Tuberculosis", "Ear infection", "Conjunctivitis", "Asthma", "Allergies", "Heart disease",
+    "Rheumatic fever", "Diabetes", "Hypertension", "Stroke", "Obesity", "Arthritis", "Diarrhea", "Gastritis/Ulcer", "Colitis", "Parasites",
+    "Hepatitis", "Kidney disease", "UTI", "Exanthematous disease", "STI", "HIV/AIDS", "Dengue", "Poisoning", "Alcoholism", "Drug-related illness",
+    "Accidental injury", "Injury from aggression", "Stress", "Depression", "Skin issues", "Oral disease", "Headache", "Fever (unspecified)",
+    "Folk illnesses", "Pregnancy", "Cancer", "Other", "Don't know"
+  )
+)
+
+tidy_model_meds <- tidy(model_meds, conf.int = TRUE)
+
+# Filter only condition variables
+tidy_conditions_meds <- tidy_model_meds %>%
+  filter(grepl("^condition\\d+", term)) %>%
+  left_join(condition_map, by = "term") %>%
+  arrange(estimate)
+
+# Create factor with ordering for plotting
+tidy_conditions_meds$condition <- factor(tidy_conditions_meds$condition, levels = tidy_conditions_meds$condition)
+
+
+ggplot(tidy_conditions_meds, aes(x = estimate, y = condition)) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, color = "gray50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Effect of Health Condition on Meds Prescription",
+    x = "Coefficient Estimate (with 95% CI)",
+    y = "Condition"
+  ) +
+  theme_minimal(base_size = 13)
+
+
+# -- NOW FOR PROVIDERS--
+provider_map <- data.frame(
+  term = c(
+    "providerIMSS", "providerISSSTE", "providerState-level ISSSTE", 
+    "providerPemex", "providerDefensa",
+    "providerNavy", "providerSeguro Popular", "providerIMSS PROSPERA",
+    "providerOther"
+  ),
+  provider = c(
+    "Social Security (IMSS)", "ISSSTE", "State-level ISSSTE", "Pemex", "Defensa",
+    "Navy", "Seguro Popular", "IMSS PROSPERA", "Other institution"
+  )
+)
+
+# Tidy your model
+tidy_model_meds <- tidy(model_meds, conf.int = TRUE)
+
+# Filter for provider terms only
+tidy_providers_meds <- tidy_model_meds %>%
+  filter(term %in% provider_map$term) %>%
+  left_join(provider_map, by = "term") %>%
+  arrange(estimate)
+
+# Join the results on quality by provider
+tidy_providers_meds <- tidy_providers_meds %>%
+  left_join(provider_summary, by = "provider")
+
+# 1. Add significance stars
+tidy_providers_meds <- tidy_providers_meds %>%
+  mutate(
+    stars = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      p.value < 0.1 ~ ".",
+      TRUE ~ ""
+    ),
+    coef_label = paste0(sprintf("%.2f", estimate), stars)
+  )
+
+# 2. Order by average quality (ensure provider is factor)
+tidy_providers_meds <- tidy_providers_meds %>%
+  mutate(provider = fct_reorder(provider, avg_quality))
+
+# 3. Plot
+ggplot(tidy_providers_meds, aes(x = provider, y = estimate)) +
+  geom_col(fill = "steelblue", width = 0.7) +
+  geom_errorbar(aes(ymin = estimate - std.error,
+                    ymax = estimate + std.error), width = 0.2) +
+  geom_text(aes(label = coef_label), hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  labs(
+    title = "Effect of Healthcare Provider on # of Med Prescription",
+    x = "Provider",
+    y = "Coefficient (with significance)"
+  ) +
+  theme_minimal()
+
+plot_model(model_tests, show.values = TRUE, value.offset = 0.3) +
+  coord_flip()
+
+
+ggplot(tidy_providers, aes(x = estimate, y = provider)) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, color = "gray50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Effect of Provider Type on Number of Med Prescription",
+    subtitle = "Ordered by Mean Quality of Care",
+    x = "Coefficient Estimate (with 95% CI)",
+    y = "Provider (Highest to Lowest Mean Quality)"
+  ) +
+  theme_minimal(base_size = 13)
+
+
+## ------------------ HYPOTHESIS 2: --------------------
+## Without capitation or fee-for-service incentives and with low 
+## monitoring, providers put less effort per patient.
+
+health_quality_data <- health_quality_data %>%
+  # Consultation time in minutes
+  mutate(consult_time = as.numeric(P4_7H) * 60 + as.numeric(P4_7M),
+         
+         # Effort perception variables (reverse coded so higher = more effort)
+         ask_questions = ifelse(P8_5_2 %in% 1:4, 5 - as.numeric(P8_5_2), NA),
+         enough_time = ifelse(P8_5_3 %in% 1:4, 5 - as.numeric(P8_5_3), NA),
+         shared_decision = ifelse(P8_5_4 %in% 1:4, 5 - as.numeric(P8_5_4), NA),
+         explain_clear = ifelse(P8_5_5 %in% 1:4, 5 - as.numeric(P8_5_5), NA),
+         coordinate_specialist = ifelse(P8_5_6 %in% 1:4, 5 - as.numeric(P8_5_6), NA),
+         
+         # Other effort-relevant measures
+         review_meds = ifelse(P8_8_1 == 1, 1, ifelse(P8_8_1 == 2, 0, NA)),
+         explain_sidefx = ifelse(P8_8_2 == 1, 1, ifelse(P8_8_2 == 2, 0, NA)),
+         
+         # Provider recoding (if not yet done)
+         provider = factor(P3_7, levels = c(1,2,3,4,5,6,7,8,9,10,11),
+                           labels = c("IMSS", "ISSSTE", "State-level ISSSTE", "Pemex", "Defensa", "Navy", "Seguro Popular", 
+                                      "IMSS PROSPERA", "Other", "Private", "Other")),
+         
+         sex = factor(SEXO, labels = c("Male", "Female")),
+         age = as.numeric(EDAD)
+  )
+
+# Standardize variables
+effort_vars <- c("consult_time", "ask_questions", "enough_time", "shared_decision",
+                 "explain_clear", "coordinate_specialist", "review_meds", "explain_sidefx")
+
+health_quality_data <- health_quality_data %>%
+  mutate(across(all_of(effort_vars), ~ scale(.)[,1], .names = "z_{col}")) %>%
+  rowwise() %>%
+  mutate(effort_index = mean(c_across(starts_with("z_")), na.rm = TRUE)) %>%
+  ungroup()
+
+# Define the base comparison for the Private
+health_quality_data$provider <- relevel(health_quality_data$provider, ref = "Private")
+
+# Define the model
+effort_model <- lm(effort_index ~ provider + age + sex, data = health_quality_data)
+effort_model_conditions <- lm(effort_index ~ provider + age + sex + condition, data = health_quality_data)
+
+
+# Print the summary
+summary(effort_model)
+summary(effort_model_conditions)
+
+
+## -- FOR PROVIDERS --
+
+pred_df <- health_quality_data %>%
+  group_by(provider) %>%
+  summarise(mean_effort = mean(effort_index, na.rm = TRUE),
+            se = sd(effort_index, na.rm = TRUE)/sqrt(n()))
+
+# First get the original plot with sorting
+plot <- plot_model(effort_model, 
+                   type = "est", 
+                   sort.est = TRUE,  # Sort by effect size
+                   title = "Effects on Provider Effort Index",
+                   show.values = TRUE,
+                   show.p = TRUE,
+                   value.offset = 0.3,
+                   colors = c("firebrick", "steelblue"))  # Red for negative, blue for positive
+
+# Extract and modify the data while preserving order
+plot_data <- plot$data
+# Store original order
+plot_data$original_order <- 1:nrow(plot_data)
+# Remove "provider" from labels
+plot_data$term <- gsub("provider", "", plot_data$term)
+
+# Rebuild plot with modified labels but preserved order
+ggplot(plot_data, aes(x = reorder(term, original_order), y = estimate, color = estimate > 0)) +
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high), fatten = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  scale_color_manual(values = c("firebrick", "steelblue")) +
+  geom_text(aes(label = paste0(sprintf("%.2f", estimate), 
+                               ifelse(p.value < 0.001, "***", 
+                                      ifelse(p.value < 0.01, "**",
+                                             ifelse(p.value < 0.05, "*", ""))))),
+            vjust = -0.5, size = 3.5) +
+  labs(title = "Effects on Provider Effort Index",
+       y = "Estimate",
+       x = "") +
+  theme_sjplot() +
+  theme(axis.text.y = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14),
+        legend.position = "none") +
+  coord_flip()
+
+
+# -- FOR HEALTH CONDITIONS --
+condition_map <- data.frame(
+  term = paste0("condition", c(
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+    22, 23, 24, 25, 26, 28, 29, 30, 32, 33,
+    34, 36, 37, 38, 39, 40, 41, 42, 43, 44,
+    45, 99)
+  ),
+  condition = c(
+    "Pneumonia", "COPD", "Cold/Sore throat", "Tuberculosis", "Ear infection", "Conjunctivitis", "Asthma", "Allergies", "Heart disease",
+    "Rheumatic fever", "Diabetes", "Hypertension", "Stroke", "Obesity", "Arthritis", "Diarrhea", "Gastritis/Ulcer", "Colitis", "Parasites",
+    "Hepatitis", "Kidney disease", "UTI", "Exanthematous disease", "STI", "HIV/AIDS", "Dengue", "Poisoning", "Alcoholism", "Drug-related illness",
+    "Accidental injury", "Injury from aggression", "Stress", "Depression", "Skin issues", "Oral disease", "Headache", "Fever (unspecified)",
+    "Folk illnesses", "Pregnancy", "Cancer", "Other", "Don't know"
+  )
+)
+
+tidy_model_effort <- tidy(effort_model_conditions, conf.int = TRUE)
+
+# Filter only condition variables
+tidy_model_effort <- tidy_model_effort %>%
+  filter(grepl("^condition\\d+", term)) %>%
+  left_join(condition_map, by = "term") %>%
+  arrange(estimate)
+
+# Create factor with ordering for plotting
+tidy_model_effort$condition <- factor(tidy_model_effort$condition, levels = tidy_model_effort$condition)
+
+
+ggplot(tidy_model_effort, aes(x = estimate, y = condition)) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, color = "gray50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Effect of Health Condition on Effort",
+    x = "Coefficient Estimate (with 95% CI)",
+    y = "Condition"
+  ) +
+  theme_minimal(base_size = 13)
+
+
+
+## ----------------- HYPOTHESIS 3: (PENDING) --------------------
+## Moral hazard leads to inefficient care, not better care.
 
 # Outcome: would return (Yes = 1)
 health_quality_data <- health_quality_data %>%
   mutate(
-    would_return = ifelse(P7_2 == 1, 1, 0)
+    health_outcome = ifelse(P7_1 %in% c(1,2), 1, 0)
   )
 
-# Regression: Return ~ overtreatment
-summary(lm(would_return ~ num_medications + test_requested + factor(P3_7), data = health_quality_data))
+# Regression: got better ~ overtreatment
+summary(lm(health_outcome ~ num_medications + test_requested + factor(P3_7), data = health_quality_data))
 
 
 ## ----------------- HYPOTHESIS 3: --------------------

@@ -234,7 +234,7 @@ health_quality_data <- health_quality_data %>%
 
 # Define scoring rules
 likert_5_vars <- c(
-  "P3_5", "P4_6_rc", "P7_7_rc", "P8_2", "P8_3", "P8_4",
+  "P3_5", "P7_7_rc", "P8_2", "P8_3", "P8_4",
   "P8_5_1", "P8_5_2", "P8_5_3", "P8_5_4", "P8_5_5", "P8_5_6", "P8_6"
 )
 binary_vars <- c("P7_2", "P8_8_1", "P8_8_2", "P8_8_3")
@@ -1095,6 +1095,98 @@ plot_by_system(test_df, "Effect of Test Requested on Better Care, by Provider")
 plot_by_system(meds_df, "Effect of Number of Medications on Better Care, by Provider")
 
 ```
+```{r}
+## ----------------- HYPOTHESIS 3 --------------------
+## Moral hazard leads to inefficient care, not better care.
+
+# Outcome: would return (Yes = 1)
+health_quality_data <- health_quality_data %>%
+  mutate(
+    health_outcome = ifelse(P7_2 %in% c(1), 1, 0)
+  )
+
+health_quality_data <- health_quality_data %>%
+  mutate(
+    num_meds = P5_1
+  )
+
+health_quality_data <- health_quality_data %>%
+  filter(!is.na(provider))    # remove any missing‐provider rows
+
+# 1) Ensure provider is coded and labeled
+health_quality_data <- health_quality_data %>%
+  mutate(
+    provider = factor(provider, levels = unique(provider)),  # preserve existing order
+    system   = recode(as.character(provider),
+                      "1"  = "Social Security (IMSS)",
+                      "2"  = "ISSSTE",
+                      "3"  = "State-level ISSSTE",
+                      "4"  = "Pemex",
+                      "5"  = "Defensa",
+                      "6"  = "Navy",
+                      "7"  = "Seguro Popular",
+                      "8"  = "IMSS PROSPERA",
+                      "9"  = "Private insurance",
+                      "10" = "Other institution",
+                      "11" = "Not affiliated",
+                      "99" = "Doesn't know")
+  )
+
+# 2) TEST_REQUESTED: run reg within each provider, pull slope + CI
+test_df <- health_quality_data %>%
+  group_by(provider, system) %>%
+  do(tidy(
+    lm(health_outcome ~ test_requested + age + sex + factor(primary_condition), data = .),
+    conf.int = TRUE
+  )) %>%
+  filter(term == "test_requested") %>%
+  mutate(original_order = row_number())
+
+# 3) NUM_MEDS: same but for num_meds
+meds_df <- health_quality_data %>%
+  group_by(provider, system) %>%
+  do(tidy(
+    lm(health_outcome ~ num_meds + age + sex + factor(primary_condition), data = .),
+    conf.int = TRUE
+  )) %>%
+  filter(term == "num_meds") %>%
+  mutate(original_order = row_number())
+
+# 4) Function to plot any of these
+plot_by_system <- function(df, title_text) {
+  ggplot(df,
+         aes(x = reorder(system, original_order),
+             y = estimate,
+             color = estimate > 0)) +
+    geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
+                    fatten = 1) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+    scale_color_manual(values = c("firebrick", "steelblue")) +
+    geom_text(aes(label = paste0(
+                     sprintf("%.2f", estimate),
+                     ifelse(p.value < 0.001, "***",
+                       ifelse(p.value < 0.01, "**",
+                              ifelse(p.value < 0.05, "*", "")
+                       )
+                     )
+                   )),
+              vjust = -0.5, size = 3.5) +
+    labs(title = title_text,
+         y     = "Slope (95% CI)",
+         x     = "") +
+    theme_sjplot() +
+    theme(axis.text.y     = element_text(size = 10),
+          plot.title      = element_text(face = "bold", size = 14),
+          legend.position = "none") +
+    coord_flip()
+}
+
+# 5) Draw them
+plot_by_system(test_df, "Effect of Test Requested on Return Propensity, by Provider")
+plot_by_system(meds_df, "Effect of Number of Medications on Return Propensity, by Provider")
+
+```
+
 
 ```{r}
 # Total medical spending

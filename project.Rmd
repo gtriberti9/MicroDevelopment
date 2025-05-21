@@ -1,6 +1,8 @@
 ---
 title: "project_final"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 date: "2025-05-18"
 ---
 
@@ -21,8 +23,7 @@ library(purrr)
 library(stringr)
 ```
 
-# Import Data
-
+# Set Up
 
 ```{r}
 
@@ -49,8 +50,6 @@ health_quality_data <- read.csv(unz("DATABASE.zip","CS_SERV_SALUD.csv"))
 ```
 
 # Descriptives
-
-
 ```{r}
 state_names <- c(
   "1" = "Aguascalientes", "2" = "Baja California", "3" = "Baja California Sur",
@@ -79,6 +78,7 @@ ggplot(household_counts, aes(x = reorder(state_name, -num_households), y = num_h
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
 ## UPDATING THE DATABASES WITHOUT TOP 5 STATES
 ```{r}
 household_data <- household_data %>%
@@ -341,8 +341,10 @@ ggplot(long_data, aes(x = dimension, y = fct_rev(P3_7_label), fill = avg_val)) +
   )
 
 ```
+
+## RETURN PROPENSITY
+
 ```{r}
-# ----------- RETURN PROPENSITY ---------------------
 # Calculate return proportions
 return_prop <- health_quality_data %>%
   filter(!is.na(P7_2), !is.na(P3_7_label)) %>%
@@ -585,14 +587,10 @@ print(plot1)
 
 
 ```
-
+# Hypothesis
+## Hypo 1
+Without capitation or fee-for-service incentives and with low monitoring, providers may induce less services. 
 ```{r}
-## ------------------ HYPOTHESIS 1: --------------------
-## Without capitation or fee-for-service incentives and with low 
-## monitoring, providers may induce less services. 
-
-
-
 # Label providers
 health_quality_data <- health_quality_data %>%
   mutate(
@@ -620,10 +618,10 @@ model_meds <- lm(medications ~ provider + age + sex + condition,
 # Summary with robust standard errors
 coeftest(model_tests, vcov = vcovHC(model_tests, type = "HC1"))
 coeftest(model_meds, vcov = vcovHC(model_meds, type = "HC1"))
+```
 
-##############################
-#######  PLOTS FOR MODEL_TESTS
-##############################
+Health conditions
+```{r}
 # -- FOR HEALTH CONDITIONS --
 condition_map <- data.frame(
   term = paste0("condition", c(
@@ -862,14 +860,12 @@ ggplot(tidy_providers, aes(x = estimate, y = provider)) +
     y = "Provider (Highest to Lowest Mean Quality)"
   ) +
   theme_minimal(base_size = 13)
-
 ```
 
-```{r}
-## ------------------ HYPOTHESIS 2: --------------------
-## Without capitation or fee-for-service incentives and with low 
-## monitoring, providers put less effort per patient.
 
+## Hypo 2: Low effort per treatment
+Without capitation or fee-for-service incentives and with low monitoring, providers put less effort per patient.
+```{r}
 health_quality_data <- health_quality_data %>%
   # Consultation time in minutes
   mutate(consult_time = as.numeric(P4_7H) * 60 + as.numeric(P4_7M),
@@ -1003,7 +999,8 @@ ggplot(tidy_model_effort, aes(x = estimate, y = condition)) +
   theme_minimal(base_size = 13)
 
 ```
-## Hypothesis 3
+
+## Hypo 3: Moral hazard leads to inefficient care, not better care.
 ```{r}
 ## ----------------- HYPOTHESIS 3 --------------------
 ## Moral hazard leads to inefficient care, not better care.
@@ -1095,9 +1092,10 @@ plot_by_system(test_df, "Effect of Test Requested on Better Care, by Provider")
 plot_by_system(meds_df, "Effect of Number of Medications on Better Care, by Provider")
 
 ```
+
+Does more test or more medication significantly improve health outcome?
+
 ```{r}
-## ----------------- HYPOTHESIS 3 --------------------
-## Moral hazard leads to inefficient care, not better care.
 
 # Outcome: would return (Yes = 1)
 health_quality_data <- health_quality_data %>%
@@ -1187,7 +1185,7 @@ plot_by_system(meds_df, "Effect of Number of Medications on Return Propensity, b
 
 ```
 
-
+Testing and patient out-of-pocket spending
 ```{r}
 # Total medical spending
 health_quality_data <- health_quality_data %>%
@@ -1276,8 +1274,9 @@ health_quality_data %>%
 
 ```
 
+Wait time and access - plot
 ```{r}
-# Wait time and access
+
 # 1) Compute wait_time_score & consult_minutes
 health_quality_data <- health_quality_data %>%
   mutate(
@@ -1359,6 +1358,8 @@ plot_coef(consult_coefs, "Difference in Consult Minutes (versus Private)")
 
 ```
 
+Draft code. 
+
 ```{r}
 
 health_quality_data$provider <- relevel(health_quality_data$provider, ref = "Private insurance")
@@ -1401,5 +1402,49 @@ plot_by_system <- function(df, title_text) {
 plot_by_system(provider_df, "Effect of Provider on Health Outcome")
 ```
 
+Is our effort index robust? - Test whether effort index is positively and significantly contributing to health outcomes. 
+```{r}
+
+effort_df <- health_quality_data %>%
+  group_by(provider, system) %>%
+  do(tidy(
+    lm(health_outcome ~ effort_index + age + sex + factor(primary_condition), data = .),
+    conf.int = TRUE
+  )) %>%
+  filter(term == "effort_index") %>%
+  mutate(original_order = row_number())
+
+
+
+plot_by_system <- function(df, title_text) {
+  ggplot(df,
+         aes(x = reorder(system, original_order),
+             y = estimate,
+             color = estimate > 0)) +
+    geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
+                    fatten = 1) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+    scale_color_manual(values = c("firebrick", "steelblue")) +
+    geom_text(aes(label = paste0(
+                     sprintf("%.2f", estimate),
+                     ifelse(p.value < 0.001, "***",
+                       ifelse(p.value < 0.01, "**",
+                              ifelse(p.value < 0.05, "*", "")
+                       )
+                     )
+                   )),
+              vjust = -0.5, size = 3.5) +
+    labs(title = title_text,
+         y     = "Slope (95% CI)",
+         x     = "") +
+    theme_sjplot() +
+    theme(axis.text.y     = element_text(size = 10),
+          plot.title      = element_text(face = "bold", size = 14),
+          legend.position = "none") +
+    coord_flip()
+}
+
+plot_by_system(effort_df, "Effect of Effort on Health Outcome, by System")
+```
 
 

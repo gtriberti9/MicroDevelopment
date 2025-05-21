@@ -504,6 +504,15 @@ health_quality_data <- health_quality_data %>%
                                labels = condition_labels)
   )
 
+# Providers
+health_quality_data <- health_quality_data %>%
+  mutate(
+    provider = factor(P3_7, levels = c(1,2,3,4,5,6,7,8,9, 10, 11),  
+                      labels = c("IMSS", "ISSSTE", "State-level ISSSTE",
+                                 "Pemex", "Defensa", "Navy", "Seguro Popular", 
+                                 "IMSS PROSPERA", "Other", "Private", "Other"))
+  )
+
 # Step 1: Chi-square test to see if conditions differ by provider
 chi_result <- chisq.test(table(health_quality_data$primary_condition, health_quality_data$provider))
 print(paste("Chi-square test result: X² =", round(chi_result$statistic, 2), 
@@ -539,31 +548,27 @@ condition_variation <- condition_by_provider %>%
   filter(!is.na(primary_condition)) %>%
   arrange(desc(variation))
 
-top_varying_conditions <- condition_variation %>%
-  slice_max(order_by = variation, n = 10) %>%
+# Step 1: Get the top 5 conditions with highest variation
+top5_conditions <- condition_variation %>%
+  slice_max(order_by = variation, n = 5) %>%
   pull(primary_condition)
 
-# Step 5: Visualize the results
+# Step 2: Filter the original data for those 5 conditions
+top5_data <- condition_by_provider %>%
+  filter(primary_condition %in% top5_conditions)
 
-# Plot 1: Top 5 conditions by provider
-plot1 <- ggplot(top_conditions_by_provider, 
-                aes(x = reorder(primary_condition, percentage), y = percentage, fill = provider)) +
-  geom_col() +
-  facet_wrap(~ provider, scales = "free_y") +
-  coord_flip() +
+# Step 3: Plot the percentage by provider for each condition
+ggplot(top5_data, aes(x = reorder(provider, percentage), y = percentage)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  facet_wrap(~ primary_condition, scales = "free_y") +
   theme_minimal() +
   labs(
-    title = "Top 5 Primary Conditions by Provider Type",
-    subtitle = "Percentage of patients seeking care for each condition",
-    x = "Condition",
-    y = "Percentage of Patients (%)"
+    title = "Variation in Reported Percentage by Provider for Top 5 Conditions",
+    x = "Provider ID (ordered within each condition)",
+    y = "Percentage of Patients",
+    caption = "Source: Authors calculations with data from ELSANUT, 2018"
   ) +
-  theme(
-    legend.position = "none",
-    axis.text.y = element_text(size = 8)
-  )
-
-print(plot1)
+  theme(axis.text.x = element_blank())  # Optional: hides crowded x-axis labels
 
 
 ## ------------------ HYPOTHESIS 1: --------------------

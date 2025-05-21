@@ -1359,8 +1359,47 @@ plot_coef(consult_coefs, "Difference in Consult Minutes (versus Private)")
 
 ```
 
+```{r}
+
+health_quality_data$provider <- relevel(health_quality_data$provider, ref = "Private insurance")
+
+provider_model <- lm(
+  health_outcome ~ provider * effort_index + age + sex + primary_condition,
+  data = health_quality_data
+)
+
+provider_df <- tidy(provider_model, conf.int = TRUE) %>%
+  filter(grepl("^provider", term)) %>%
+  # drop the reference level (intercept) row if it sneaks in
+  filter(term != "(Intercept)") %>%
+  mutate(
+    system         = sub("^provider", "", term),
+    system         = gsub("\\.", " ", system),  # clean up label if needed
+    original_order = row_number()
+  )
 
 
+plot_by_system <- function(df, title_text) {
+  ggplot(df, aes(x = fct_reorder(system, original_order), y = estimate, color = estimate > 0)) +
+    geom_pointrange(aes(ymin = conf.low, ymax = conf.high), fatten = 1) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+    scale_color_manual(values = c("firebrick", "steelblue")) +
+    geom_text(aes(label = paste0(
+      sprintf("%.2f", estimate),
+      ifelse(p.value < 0.001, "***",
+        ifelse(p.value < 0.01, "**",
+          ifelse(p.value < 0.05, "*", "")
+        )
+      )
+    )), vjust = -0.5, size = 3.5) +
+    labs(title = title_text, y = "Coefficient (95% CI)", x = "") +
+    theme_minimal(base_size = 13) +
+    theme(legend.position = "none") +
+    coord_flip()
+}
+
+plot_by_system(provider_df, "Effect of Provider on Health Outcome")
+```
 
 
 
